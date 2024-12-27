@@ -99,6 +99,10 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('reconnect', () => {
+        console.log(`Reconnect sent from ${socket.id}`);
+    }
+
     // Обработка отключения клиента
     socket.on('disconnect', () => {
         // Удаляем пользователя из онлайн списка
