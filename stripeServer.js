@@ -5,37 +5,52 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
+// Храним информацию о том, кто сейчас в сети
+// ключ: socket.id, значение: true (или любая другая информация)
+const onlineUsers = {};
+
+// Храним пары: pairs[idA] = idB и pairs[idB] = idA
 const pairs = {};
 
-// Когда клиент подключается
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
-// Если нет существующих пар, добавляем клиента в ожидание
-    if (Object.keys(pairs).length === 0) {
-        pairs[socket.id] = null; // Ждём второго клиента
+    // Отмечаем пользователя как онлайн
+    onlineUsers[socket.id] = true;
+
+    // Попытка найти свободного пользователя, чтобы сразу объединить в пару
+    const existingClientId = Object.keys(pairs).find((id) => pairs[id] === null);
+
+    if (!existingClientId) {
+        // Нет свободного пользователя, ждем второго
+        pairs[socket.id] = null;
+        console.log(`User ${socket.id} ждет пару`);
     } else {
-        // Создаём пару с первым свободным клиентом
-        const existingClientId = Object.keys(pairs).find((id) => pairs[id] === null);
-
-        if (existingClientId) {
-            pairs[existingClientId] = socket.id; // Связываем клиентов
+        // Перед созданием пары проверяем, онлайн ли ещё existingClientId
+        // (Вдруг он успел отключиться, но по каким-то причинам ещё остался в pairs)
+        if (onlineUsers[existingClientId]) {
+            // Создаем пару
+            pairs[existingClientId] = socket.id;
             pairs[socket.id] = existingClientId;
-
             console.log(`Pair created: ${existingClientId} <-> ${socket.id}`);
         } else {
-            pairs[socket.id] = null; // Нет доступных клиентов, ждём
+            // Если тот пользователь уже офлайн, убираем его из pairs
+            delete pairs[existingClientId];
+            // И ставим текущего в режим ожидания
+            pairs[socket.id] = null;
+            console.log(`Пользователь ${existingClientId} оказался офлайн`);
+            console.log(`User ${socket.id} ждет пару`);
         }
     }
 
-        // Обработка начала звонка
+    // Обработка начала звонка
     socket.on('start-call', ({ callUUID, targetUserId, callerName }) => {
         const targetId = pairs[socket.id];
         if (targetId) {
-            
             console.log(`Call initiated: ${callUUID} from ${socket.id} to ${targetId}`);
 
-            // Отправляем уведомление другому клиенту
+            // Отправляем уведомление второму клиенту
             io.to(targetId).emit('incoming-call', {
                 callUUID,
                 callerName,
@@ -52,27 +67,9 @@ io.on('connection', (socket) => {
         }
     });
 
-    // // Клиент A начинает вызов
-    // socket.on('start-call', ({ callUUID, targetUserId, callerName }) => {
-    //     const targetSocketId = Object.keys(users).find(id => id !== socket.id);
-    //     // const targetSocketId = users[0]
-    //     // const targetSocketId = users[targetUserId]; // Ищем сокет клиента B
-    //     if (targetSocketId) {
-    //         // Отправляем клиенту B уведомление о входящем звонке
-    //         io.to(targetSocketId).emit('incoming-call', {
-    //             callUUID,
-    //             callerName,
-    //         });
-    //         console.log(`Call initiated: ${callUUID} from ${callerName} to ${targetUserId}`);
-    //     } else {
-    //         console.log(`User ${targetUserId} is not online.`);
-    //         socket.emit('call-error', { message: `User ${targetUserId} is not online.` });
-    //     }
-    // });
-
+    // Завершение звонка
     socket.on('end-call', ({ callUUID }) => {
-        const targetSocketId = pairs[socket.id]; // Находим второго клиента в паре
-
+        const targetSocketId = pairs[socket.id];
         if (targetSocketId) {
             io.to(targetSocketId).emit('call-ended', { callUUID });
             console.log(`Call ended: ${callUUID} between ${socket.id} and ${targetSocketId}`);
@@ -81,10 +78,9 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Обработка сигналов WebRTC
     socket.on('signal', (data) => {
-
         const prettyJson = JSON.stringify(data, null, 2);
-  
         console.log("Got signal event (pretty printed):\n", prettyJson);
 
         const targetSocketId = pairs[socket.id];
@@ -94,7 +90,7 @@ io.on('connection', (socket) => {
                 signal: {
                     senderId: socket.id,
                     signal: data.signal || null,
-                    candidate: data.candidate || null
+                    candidate: data.candidate || null,
                 }
             };
             io.to(targetSocketId).emit('signal', signalData);
@@ -106,13 +102,26 @@ io.on('connection', (socket) => {
 
     // Обработка отключения клиента
     socket.on('disconnect', () => {
+        // Удаляем пользователя из онлайн списка
+        delete onlineUsers[socket.id];
+
+        // Освобождаем второго пользователя из пары (если был связан)
         const targetId = pairs[socket.id];
         if (targetId) {
-            // Убираем связь
-            pairs[targetId] = null;
-            console.log(`User ${targetId} is now free`);
+            // Если второй пользователь ещё онлайн, ставим его в null,
+            // чтобы он вновь мог найти пару
+            if (onlineUsers[targetId]) {
+                pairs[targetId] = null;
+                console.log(`User ${targetId} is now free`);
+            } else {
+                // Если второй пользователь тоже офлайн – просто удаляем его
+                delete pairs[targetId];
+            }
         }
+
+        // Убираем самого отключившегося из объекта pairs
         delete pairs[socket.id];
+        
         console.log('User disconnected:', socket.id);
     });
 });
