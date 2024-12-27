@@ -81,7 +81,6 @@ io.on('connection', (socket) => {
     // Обработка сигналов WebRTC
     socket.on('signal', (data) => {
         const prettyJson = JSON.stringify(data, null, 2);
-        console.log("Got signal event (pretty printed):\n", prettyJson);
 
         const targetSocketId = pairs[socket.id];
         if (targetSocketId) {
