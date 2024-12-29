@@ -11,6 +11,7 @@ app.use(express.json());
 const UserSchema = new mongoose.Schema({
   username: { type: String, unique: true, required: true },
   token: { type: String, unique: true, required: true },
+  userId: { type: String, unique: true, required: true }, 
   socketId: { type: String, default: null },
   status: { type: String, enum: ['online', 'offline'], default: 'offline' },
 });
@@ -66,6 +67,7 @@ io.on('connection', async (socket) => {
 
     // Уведомляем других пользователей о подключении
     socket.broadcast.emit('user-connected', {
+      userId: user.userId, // Передаём userId
       username: user.username,
       status: user.status,
     });
@@ -136,6 +138,7 @@ io.on('connection', async (socket) => {
 
       // Уведомляем других пользователей об отключении
       socket.broadcast.emit('user-disconnected', {
+        userId: user.userId, // Передаём userId
         username: user.username,
         status: user.status,
       });
@@ -148,21 +151,27 @@ io.on('connection', async (socket) => {
 // HTTP API для регистрации нового пользователя
 app.post('/register', async (req, res) => {
   try {
-    const { username } = req.body;
+    const { username, userId } = req.body;
 
-    if (!username) {
-      return res.status(400).json({ message: 'Username is required' });
+    if (!username || !userId) {
+      return res.status(400).json({ message: 'Username and userId are required' });
     }
 
-    // Проверяем, существует ли уже пользователь с таким именем
-    const existingUser = await User.findOne({ username });
+    // Проверяем, существует ли уже пользователь с таким userId
+    const existingUser = await User.findOne({ userId });
     if (existingUser) {
+      return res.status(400).json({ message: 'UserId is already in use' });
+    }
+
+    // Проверяем, существует ли пользователь с таким именем
+    const existingUsername = await User.findOne({ username });
+    if (existingUsername) {
       return res.status(400).json({ message: 'Username is already taken' });
     }
 
     // Создаём нового пользователя с уникальным токеном
     const token = uuidv4();
-    const newUser = new User({ username, token });
+    const newUser = new User({ username, userId, token });
     await newUser.save();
 
     res.json({ token });
