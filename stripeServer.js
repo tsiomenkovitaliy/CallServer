@@ -1,260 +1,174 @@
-// server.js
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
-const User = require('./models/User'); // Убедитесь, что путь к модели верный
+
+const app = express();
+app.use(express.json());
+
+// Модель пользователя
+const UserSchema = new mongoose.Schema({
+  username: { type: String, unique: true, required: true },
+  token: { type: String, unique: true, required: true },
+  socketId: { type: String, default: null },
+  status: { type: String, enum: ['online', 'offline'], default: 'offline' },
+});
+
+const User = mongoose.model('User', UserSchema);
 
 // Подключение к MongoDB
 mongoose.connect('mongodb+srv://tciomenko:XEgWRMLsYJY6P7v7@cluster0.at6au.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0')
   .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB connection error:', err));
+  .catch((err) => console.error('MongoDB connection error:', err));
 
-// Настройка Express
-const app = express();
-app.use(express.json());
-
-// Маршрут для регистрации пользователя
-app.post('/register', async (req, res) => {
-  try {
-    const { username } = req.body;
-
-    if (!username) {
-      return res.status(400).json({ message: 'Необходимо указать имя пользователя' });
-    }
-
-    // Проверяем, существует ли уже пользователь с таким именем
-    const existingUser = await User.findOne({ username });
-    if (existingUser) {
-      return res.status(400).json({ message: 'Пользователь с таким именем уже существует' });
-    }
-
-    // Генерируем уникальный токен
-    const token = uuidv4();
-
-    // Создаём и сохраняем пользователя в базе
-    const newUser = new User({
-      username,
-      token
-    });
-    await newUser.save();
-
-    // Возвращаем токен
-    return res.json({
-      message: 'Пользователь успешно зарегистрирован',
-      token
-    });
-  } catch (error) {
-    console.error('Ошибка при регистрации пользователя:', error);
-    return res.status(500).json({ message: 'Внутренняя ошибка сервера' });
-  }
-});
-
-// Создаём HTTP-сервер и Socket.IO
+// HTTP-сервер и WebSocket
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*' // Настройте CORS по необходимости
-  }
+    origin: '*', // Настройте CORS по необходимости
+  },
 });
 
-// Храним информацию о том, кто сейчас в сети
-const onlineUsers = {};
-
-// Храним пары: pairs[idA] = idB и pairs[idB] = idA
-const pairs = {};
-
-// Мидлвэра для аутентификации Socket.IO
+// Мидлвэр для аутентификации Socket.IO
 io.use(async (socket, next) => {
   try {
-    // Получаем токен из аутентификации сокета
     const token = socket.handshake.auth.token || socket.handshake.query.token;
 
     if (!token) {
-      return next(new Error('Ошибка аутентификации: отсутствует токен'));
+      return next(new Error('Authentication error: token is missing'));
     }
 
-    // Ищем пользователя в базе
     const user = await User.findOne({ token });
     if (!user) {
-      return next(new Error('Невалидный токен'));
+      return next(new Error('Invalid token'));
     }
 
-    // Привязываем пользователя к сокету
-    socket.user = user;
+    socket.user = user; // Привязываем пользователя к сокету
     next();
   } catch (err) {
-    console.error('Ошибка в мидлвэре Socket.IO:', err);
-    return next(new Error('Внутренняя ошибка сервера'));
+    console.error('Socket.IO middleware error:', err);
+    return next(new Error('Internal server error'));
   }
 });
 
-// Обработчик событий подключения
+// События подключения и работы с пользователями
 io.on('connection', async (socket) => {
   try {
     const user = socket.user;
 
-    // Обновляем статус и socketId пользователя
-    user.status = 'online';
+    // Обновляем socketId и статус пользователя
     user.socketId = socket.id;
+    user.status = 'online';
     await user.save();
 
-    // Добавляем пользователя в onlineUsers
-    onlineUsers[socket.id] = user._id.toString();
+    console.log(`User ${user.username} connected, socketId: ${socket.id}`);
 
-    console.log(`Пользователь ${user.username} подключился, socketId: ${socket.id}`);
-
-    // Попытка найти свободного пользователя, чтобы сразу объединить в пару
-    const existingClient = await User.findOne({ pairedWith: null, status: 'online', _id: { $ne: user._id } });
-
-    if (!existingClient) {
-      // Нет свободного пользователя, ждем второго
-      user.pairedWith = null;
-      await user.save();
-      pairs[user._id.toString()] = null;
-      console.log(`Пользователь ${user.username} ждет пару`);
-    } else {
-      // Создаем пару
-      user.pairedWith = existingClient._id;
-      existingClient.pairedWith = user._id;
-      await user.save();
-      await existingClient.save();
-
-      pairs[user._id.toString()] = existingClient._id.toString();
-      pairs[existingClient._id.toString()] = user._id.toString();
-
-      console.log(`Пара создана: ${existingClient.username} <-> ${user.username}`);
-
-      // Уведомляем обоих пользователей о создании пары
-      socket.emit('pair-found', { pairedWith: existingClient.username, pairedWithId: existingClient._id });
-      const existingSocket = io.sockets.sockets.get(existingClient.socketId);
-      if (existingSocket) {
-        existingSocket.emit('pair-found', { pairedWith: user.username, pairedWithId: user._id });
-      }
-    }
-
-    // Отправляем текущему пользователю список всех других пользователей
-    const otherUsers = await User.find({ _id: { $ne: user._id } }, 'username status');
-    socket.emit('user-list', otherUsers);
-
-    // Уведомляем других пользователей о новом подключении
+    // Уведомляем других пользователей о подключении
     socket.broadcast.emit('user-connected', {
       username: user.username,
-      status: user.status
+      status: user.status,
     });
 
-    // Обработка начала звонка
-    socket.on('start-call', async ({ callUUID, targetUserId, callerName }) => {
+    // Отправляем текущему пользователю список всех пользователей (кроме него самого)
+    const users = await User.find({ _id: { $ne: user._id } }, 'username status');
+    socket.emit('user-list', users);
+
+    // Обработка звонка
+    socket.on('start-call', async ({ targetUserId, callUUID }) => {
       const targetUser = await User.findById(targetUserId);
       if (targetUser && targetUser.status === 'online' && targetUser.socketId) {
         console.log(`Call initiated: ${callUUID} from ${user.username} to ${targetUser.username}`);
 
-        // Отправляем уведомление второму клиенту
+        // Уведомляем целевого пользователя о входящем звонке
         io.to(targetUser.socketId).emit('incoming-call', {
           callUUID,
-          callerName,
+          callerName: user.username,
         });
 
         // Уведомляем инициатора, что звонок начат
         socket.emit('call-initiated', {
           callUUID,
-          targetId: targetUser._id
+          targetId: targetUserId,
         });
       } else {
-        console.error(`No pair found or target user is offline for: ${user.username}`);
-        socket.emit('call-error', { message: 'No pair available for the call.' });
+        console.error(`Call error: Target user is offline or not found (${targetUserId})`);
+        socket.emit('call-error', { message: 'User is offline or not found' });
       }
     });
 
     // Завершение звонка
-    socket.on('end-call', async ({ callUUID }) => {
-      const targetUserId = pairs[user._id.toString()];
-      if (targetUserId) {
-        const targetUser = await User.findById(targetUserId);
-        if (targetUser && targetUser.socketId) {
-          io.to(targetUser.socketId).emit('call-ended', { callUUID });
-          console.log(`Call ended: ${callUUID} between ${user.username} and ${targetUser.username}`);
-        } else {
-          console.error(`Target user not found or offline for: ${user.username}`);
-        }
-      } else {
-        console.error(`No pair found for: ${user.username}`);
+    socket.on('end-call', async ({ targetUserId, callUUID }) => {
+      const targetUser = await User.findById(targetUserId);
+      if (targetUser && targetUser.socketId) {
+        console.log(`Call ended: ${callUUID} between ${user.username} and ${targetUser.username}`);
+
+        // Уведомляем целевого пользователя, что звонок завершён
+        io.to(targetUser.socketId).emit('call-ended', { callUUID });
       }
     });
 
-    // Обработка сигналов WebRTC
-    socket.on('signal', async (data) => {
-      const targetUserId = pairs[user._id.toString()];
-      if (targetUserId) {
-        const targetUser = await User.findById(targetUserId);
+    // Обработка WebRTC сигналов
+    socket.on('signal', (data) => {
+      const { targetUserId, signal } = data;
+
+      User.findById(targetUserId).then((targetUser) => {
         if (targetUser && targetUser.socketId) {
-          const signalData = {
+          io.to(targetUser.socketId).emit('signal', {
             senderId: user._id,
-            signal: data.signal || null,
-            candidate: data.candidate || null,
-          };
-          io.to(targetUser.socketId).emit('signal', signalData);
+            signal,
+          });
           console.log(`Signal sent from ${user.username} to ${targetUser.username}`);
         } else {
-          console.error(`Target user not found or offline for signal from: ${user.username}`);
+          console.error(`Signal error: Target user is offline or not found (${targetUserId})`);
         }
-      } else {
-        console.error(`No pair found for signal from: ${user.username}`);
-      }
+      });
     });
 
-    // Обработка события reconnect (опционально, можно использовать встроенные события Socket.IO)
-    socket.on('reconnect', () => {
-      console.log(`Reconnect sent from ${socket.id}`);
-    });
-
-    // Обработка отключения клиента
+    // Обработка отключения
     socket.on('disconnect', async () => {
-      console.log(`Пользователь ${user.username} отключился, socketId: ${socket.id}`);
-
-      // Удаляем пользователя из onlineUsers
-      delete onlineUsers[socket.id];
-
-      // Освобождаем второго пользователя из пары (если был связан)
-      const targetUserId = pairs[user._id.toString()];
-      if (targetUserId) {
-        const targetUser = await User.findById(targetUserId);
-        if (targetUser && targetUser.status === 'online') {
-          // Ставим целевого пользователя в свободное состояние
-          targetUser.pairedWith = null;
-          await targetUser.save();
-          pairs[targetUserId] = null;
-          console.log(`Пользователь ${targetUser.username} освобожден и может искать новую пару`);
-
-          // Уведомляем целевого пользователя о разрыве пары
-          const targetSocket = io.sockets.sockets.get(targetUser.socketId);
-          if (targetSocket) {
-            targetSocket.emit('pair-disconnected', { message: 'Ваш партнер отключился.' });
-          }
-        } else {
-          // Если второй пользователь офлайн, просто удаляем его из pairs
-          delete pairs[targetUserId];
-        }
-      }
-
-      // Убираем самого отключившегося из объекта pairs
-      delete pairs[user._id.toString()];
+      console.log(`User ${user.username} disconnected, socketId: ${socket.id}`);
 
       // Обновляем статус пользователя
       user.status = 'offline';
       user.socketId = null;
-      user.pairedWith = null;
       await user.save();
 
       // Уведомляем других пользователей об отключении
       socket.broadcast.emit('user-disconnected', {
         username: user.username,
-        status: user.status
+        status: user.status,
       });
     });
-  } catch (error) {
-    console.error('Ошибка при обработке подключения:', error);
+  } catch (err) {
+    console.error('Error during connection handling:', err);
+  }
+});
+
+// HTTP API для регистрации нового пользователя
+app.post('/register', async (req, res) => {
+  try {
+    const { username } = req.body;
+
+    if (!username) {
+      return res.status(400).json({ message: 'Username is required' });
+    }
+
+    // Проверяем, существует ли уже пользователь с таким именем
+    const existingUser = await User.findOne({ username });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Username is already taken' });
+    }
+
+    // Создаём нового пользователя с уникальным токеном
+    const token = uuidv4();
+    const newUser = new User({ username, token });
+    await newUser.save();
+
+    res.json({ token });
+  } catch (err) {
+    console.error('Error during registration:', err);
+    res.status(500).json({ message: 'Internal server error' });
   }
 });
 
