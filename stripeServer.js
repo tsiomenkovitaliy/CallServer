@@ -7,7 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const User = require('./models/User'); // Убедитесь, что путь к модели верный
 
 // Подключение к MongoDB
-mongoose.connect('mongodb://127.0.0.1:27017/chatApp')
+mongoose.connect('mongodb+srv://tciomenko:XEgWRMLsYJY6P7v7@cluster0.at6au.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0')
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
 
