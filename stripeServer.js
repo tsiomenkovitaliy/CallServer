@@ -67,7 +67,7 @@ io.on('connection', async (socket) => {
 
     // Уведомляем других пользователей о подключении
     socket.broadcast.emit('user-connected', {
-      id: user.userId, // Передаём userId
+      _id: user.userId, // Передаём userId
       username: user.username,
       status: user.status,
     });
@@ -79,7 +79,7 @@ io.on('connection', async (socket) => {
     // Обработка звонка
     socket.on('start-call', async ({ targetUserId, callUUID }) => {
       const targetUser = await User.findById(targetUserId);
-      if (targetUser && targetUser.status === 'online' && targetUser.socketId) {
+      if (targetUser && targetUser.socketId) {
         console.log(`Call initiated: ${callUUID} from ${user.username} to ${targetUser.username}`);
 
         // Уведомляем целевого пользователя о входящем звонке
