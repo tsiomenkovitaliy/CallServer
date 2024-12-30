@@ -67,7 +67,7 @@ io.on('connection', async (socket) => {
 
     // Уведомляем других пользователей о подключении
     socket.broadcast.emit('user-connected', {
-      userId: user.userId, // Передаём userId
+      id: user.userId, // Передаём userId
       username: user.username,
       status: user.status,
     });
@@ -138,7 +138,7 @@ io.on('connection', async (socket) => {
 
       // Уведомляем других пользователей об отключении
       socket.broadcast.emit('user-disconnected', {
-        userId: user.userId, // Передаём userId
+        id: user.userId, // Передаём userId
         username: user.username,
         status: user.status,
       });
