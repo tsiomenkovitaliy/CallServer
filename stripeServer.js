@@ -57,7 +57,6 @@ io.use(async (socket, next) => {
 io.on('connection', async (socket) => {
   try {
     const user = socket.user;
-
     // Обновляем socketId и статус пользователя
     user.socketId = socket.id;
     user.status = 'online';
@@ -67,25 +66,28 @@ io.on('connection', async (socket) => {
 
     // Уведомляем других пользователей о подключении
     socket.broadcast.emit('user-connected', {
-      _id: user.userId, // Передаём userId
+      _id: user._id, // Передаём userId
+      userId: user.userId,
       username: user.username,
       status: user.status,
     });
 
     // Отправляем текущему пользователю список всех пользователей (кроме него самого)
-    const users = await User.find({ _id: { $ne: user._id } }, 'username status');
+    const users = await User.find({ _id: { $ne: user._id } }, 'username status userId');
     socket.emit('user-list', users);
 
     // Обработка звонка
     socket.on('start-call', async ({ targetUserId, callUUID }) => {
-      const targetUser = await User.findById(targetUserId);
-      if (targetUser && targetUser.socketId) {
+      const targetUser = await User.findOne({ userId: targetUserId });
+      if (targetUser && targetUser.status === 'online' && targetUser.socketId) {
         console.log(`Call initiated: ${callUUID} from ${user.username} to ${targetUser.username}`);
 
         // Уведомляем целевого пользователя о входящем звонке
         io.to(targetUser.socketId).emit('incoming-call', {
           callUUID,
           callerName: user.username,
+          callerId: socket.user.userId,
+          id: user._id
         });
 
         // Уведомляем инициатора, что звонок начат
@@ -101,7 +103,7 @@ io.on('connection', async (socket) => {
 
     // Завершение звонка
     socket.on('end-call', async ({ targetUserId, callUUID }) => {
-      const targetUser = await User.findById(targetUserId);
+      const targetUser = await User.findOne({ userId: targetUserId });
       if (targetUser && targetUser.socketId) {
         console.log(`Call ended: ${callUUID} between ${user.username} and ${targetUser.username}`);
 
@@ -114,11 +116,11 @@ io.on('connection', async (socket) => {
     socket.on('signal', (data) => {
       const { targetUserId, signal } = data;
 
-      User.findById(targetUserId).then((targetUser) => {
+      User.findOne({ userId: targetUserId }).then((targetUser) => {
         if (targetUser && targetUser.socketId) {
           io.to(targetUser.socketId).emit('signal', {
-            senderId: user._id,
-            signal,
+            senderId: user.userId,
+            signal: signal,
           });
           console.log(`Signal sent from ${user.username} to ${targetUser.username}`);
         } else {
@@ -138,7 +140,8 @@ io.on('connection', async (socket) => {
 
       // Уведомляем других пользователей об отключении
       socket.broadcast.emit('user-disconnected', {
-        id: user.userId, // Передаём userId
+        id: user._id, // Передаём userId,
+        userId: user.userId,
         username: user.username,
         status: user.status,
       });
