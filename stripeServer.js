@@ -57,6 +57,17 @@ io.use(async (socket, next) => {
 io.on('connection', async (socket) => {
   try {
     const user = socket.user;
+    if (user.socketId != null) {
+      console.log(`Reconnect user: ${user.username}`);
+
+      socket.to(socket.id).emit('reconnect', {
+        _id: user._id, 
+        userId: user.userId,
+        username: user.username,
+        status: user.status,
+      });
+    }
+
     // Обновляем socketId и статус пользователя
     user.socketId = socket.id;
     user.status = 'online';
