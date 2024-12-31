@@ -114,20 +114,20 @@ io.on('connection', async (socket) => {
 
     // Обработка WebRTC сигналов
     socket.on('signal', (data) => {
-      const { targetUserId, signal } = data;
-
-      User.findOne({ userId: targetUserId }).then((targetUser) => {
-        if (targetUser && targetUser.socketId) {
-          io.to(targetUser.socketId).emit('signal', {
-            senderId: user.userId,
-            signal: signal,
-          });
-          console.log(`Signal sent from ${user.username} to ${targetUser.username}`);
-        } else {
-          console.error(`Signal error: Target user is offline or not found (${targetUserId})`);
-        }
+   
+      User.findOne({ userId: data.targetUserId }).then((targetUser) => {
+         if (targetUser && targetUser.socketId) {
+            io.to(targetUser.socketId).emit('signal', {
+               senderId: user.userId,
+               signal: data.signal || null,
+               candidate: data.candidate || null,
+            });
+            console.log(`Signal sent from ${user.username} to ${targetUser.username}`);
+         } else {
+            console.error(`Signal error: Target user is offline or not found (${targetUserId})`);
+         }
       });
-    });
+   });
 
     // Обработка отключения
     socket.on('disconnect', async () => {
