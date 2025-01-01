@@ -17,6 +17,7 @@ const UserSchema = new mongoose.Schema({
 });
 
 const User = mongoose.model('User', UserSchema);
+const Call = require('./models/Call'); // путь к файлу, где вы создали модель
 
 // Подключение к MongoDB
 mongoose.connect('mongodb+srv://tciomenko:XEgWRMLsYJY6P7v7@cluster0.at6au.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0')
@@ -87,11 +88,21 @@ io.on('connection', async (socket) => {
     const users = await User.find({ _id: { $ne: user._id } }, 'username status userId');
     socket.emit('user-list', users);
 
-    // Обработка звонка
+    // Пример использования при старте звонка
     socket.on('start-call', async ({ targetUserId, callUUID }) => {
       const targetUser = await User.findOne({ userId: targetUserId });
       if (targetUser && targetUser.status === 'online' && targetUser.socketId) {
         console.log(`Call initiated: ${callUUID} from ${user.username} to ${targetUser.username}`);
+
+        // Создаём запись о новом звонке в БД
+        await Call.create({
+          callUUID,
+          callerId: user.userId,
+          calleeId: targetUserId,
+          // offerSdp, если уже есть
+          // answerSdp, если уже есть
+          status: 'pending'
+        });
 
         // Уведомляем целевого пользователя о входящем звонке
         io.to(targetUser.socketId).emit('incoming-call', {
