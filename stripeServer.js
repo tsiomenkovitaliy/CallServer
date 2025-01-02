@@ -16,10 +16,6 @@ const UserSchema = new mongoose.Schema({
   status: { type: String, enum: ['online', 'offline'], default: 'offline' },
 });
 
-// В объекте храните таймеры отключений для каждого userId
-const disconnectTimers = {}; 
-const DISCONNECT_DELAY = 10000; // 5 секунд на переподключение
-
 const User = mongoose.model('User', UserSchema);
 const Call = require('./models/Call'); // путь к файлу, где вы создали модель
 
@@ -62,22 +58,16 @@ io.use(async (socket, next) => {
 io.on('connection', async (socket) => {
   try {
     const user = socket.user;
+    if (user.socketId != null) {
+      console.log(`Reconnect user: ${user.username}`);
 
-    // Если у пользователя был таймер на дисконнект, сбросим его
-    if (disconnectTimers[user.userId]) {
-      clearTimeout(disconnectTimers[user.userId]);
-      delete disconnectTimers[user.userId];
+      socket.to(socket.id).emit('reconnect', {
+        _id: user._id, 
+        userId: user.userId,
+        username: user.username,
+        status: user.status,
+      });
     }
-    // if (user.socketId != null) {
-    //   console.log(`Reconnect user: ${user.username}`);
-
-    //   socket.to(socket.id).emit('reconnect', {
-    //     _id: user._id, 
-    //     userId: user.userId,
-    //     username: user.username,
-    //     status: user.status,
-    //   });
-    // }
 
     // Обновляем socketId и статус пользователя
     user.socketId = socket.id;
@@ -164,26 +154,22 @@ io.on('connection', async (socket) => {
     // Обработка отключения
     socket.on('disconnect', async () => {
       console.log(`User ${user.username} disconnected, socketId: ${socket.id}`);
-  
-      // Ставим таймер, во время которого ждём возможного реконнекта
-      disconnectTimers[user.userId] = setTimeout(async () => {
-        // Если за это время пользователь не переподключился, ставим офлайн
-        console.log(`Setting user ${user.username} offline (no reconnection).`);
+      const userWithThisSocket = await User.findOne({ socketId: socket.id });
+
+      if (userWithThisSocket != null) {
+        // Обновляем статус пользователя
         user.status = 'offline';
         user.socketId = null;
         await user.save();
-  
-        // Сообщаем другим
-        socket.broadcast.emit('user-disconnected', {
-          id: user._id,
-          userId: user.userId,
-          username: user.username,
-          status: user.status,
-        });
-  
-        // Удаляем таймер из памяти
-        delete disconnectTimers[user.userId];
-      }, DISCONNECT_DELAY);
+      }
+
+      // Уведомляем других пользователей об отключении
+      socket.broadcast.emit('user-disconnected', {
+        id: user._id, // Передаём userId,
+        userId: user.userId,
+        username: user.username,
+        status: user.status,
+      });
     });
   } catch (err) {
     console.error('Error during connection handling:', err);
