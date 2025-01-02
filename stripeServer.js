@@ -18,7 +18,7 @@ const UserSchema = new mongoose.Schema({
 
 // В объекте храните таймеры отключений для каждого userId
 const disconnectTimers = {}; 
-const DISCONNECT_DELAY = 5000; // 5 секунд на переподключение
+const DISCONNECT_DELAY = 10000; // 5 секунд на переподключение
 
 const User = mongoose.model('User', UserSchema);
 const Call = require('./models/Call'); // путь к файлу, где вы создали модель
