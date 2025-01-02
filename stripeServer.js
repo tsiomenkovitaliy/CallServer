@@ -136,7 +136,7 @@ io.on('connection', async (socket) => {
 
     // Обработка WebRTC сигналов
     socket.on('signal', (data) => {
-   
+      console.error(`Signal Target User Id:  (${targetUserId})`);
       User.findOne({ userId: data.targetUserId }).then((targetUser) => {
          if (targetUser && targetUser.socketId) {
             io.to(targetUser.socketId).emit('signal', {
