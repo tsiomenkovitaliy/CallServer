@@ -155,10 +155,14 @@ io.on('connection', async (socket) => {
     socket.on('disconnect', async () => {
       console.log(`User ${user.username} disconnected, socketId: ${socket.id}`);
 
-      // Обновляем статус пользователя
-      user.status = 'offline';
-      user.socketId = null;
-      await user.save();
+      if (user.socketId == socket.id) {
+        // Обновляем статус пользователя
+        user.status = 'offline';
+        user.socketId = null;
+        await user.save();
+      } else {
+        console.log(`SocketId not equal`);
+      }
 
       // Уведомляем других пользователей об отключении
       socket.broadcast.emit('user-disconnected', {
