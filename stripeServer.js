@@ -61,14 +61,13 @@ io.use(async (socket, next) => {
 // События подключения и работы с пользователями
 io.on('connection', async (socket) => {
   try {
-
-      // Если у пользователя был таймер на дисконнект, сбросим его
-  if (disconnectTimers[user.userId]) {
-    clearTimeout(disconnectTimers[user.userId]);
-    delete disconnectTimers[user.userId];
-  }
-
     const user = socket.user;
+
+    // Если у пользователя был таймер на дисконнект, сбросим его
+    if (disconnectTimers[user.userId]) {
+      clearTimeout(disconnectTimers[user.userId]);
+      delete disconnectTimers[user.userId];
+    }
     // if (user.socketId != null) {
     //   console.log(`Reconnect user: ${user.username}`);
 
