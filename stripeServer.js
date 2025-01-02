@@ -161,15 +161,17 @@ io.on('connection', async (socket) => {
         user.status = 'offline';
         user.socketId = null;
         await user.save();
-      }
 
-      // Уведомляем других пользователей об отключении
+        // Уведомляем других пользователей об отключении
       socket.broadcast.emit('user-disconnected', {
         id: user._id, // Передаём userId,
         userId: user.userId,
         username: user.username,
         status: user.status,
       });
+      }
+
+      
     });
   } catch (err) {
     console.error('Error during connection handling:', err);
