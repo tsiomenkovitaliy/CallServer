@@ -156,8 +156,8 @@ io.on('connection', async (socket) => {
       console.log(`User ${user.username} disconnected, socketId: ${socket.id}`);
       const userWithThisSocket = await User.findOne({ socketId: socket.id });
 
-      if (userWithThisSocket != null) {
-        // Обновляем статус пользователя
+      if (userWithThisSocket) {
+        console.log(`Udate status offline`);
         user.status = 'offline';
         user.socketId = null;
         await user.save();
