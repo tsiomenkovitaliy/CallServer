@@ -1,10 +1,10 @@
 {
-  "name": "stripeserver",
+  "name": "callserver",
   "version": "1.0.0",
-  "main": "stripeServer.js",
+  "main": "callserver.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node stripeServer.js"
+    "start": "node callserver.js"
   },
   "keywords": [],
   "author": "",
